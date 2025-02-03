@@ -105,21 +105,17 @@ func (m *Middleware) ServeHTTP(w http.ResponseWriter, r *http.Request, next cadd
 
 // UnmarshalCaddyfile parses the Caddyfile directive.
 func (m *Middleware) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
-	d.Next() // Consume the directive name ("abuseip_blocker")
+	for d.Next() {
+		if !d.NextArg() {
+			return d.ArgErr()
+		}
+		m.BlocklistFile = d.Val()
+		fmt.Println("Blocklist file set to:", m.BlocklistFile) // Add logging for debugging
 
-	// Require an argument (the path to the blocklist file)
-	if !d.NextArg() {
-		return d.ArgErr()
+		if d.NextArg() {
+			return d.ArgErr() // Only one argument is allowed
+		}
 	}
-
-	// Store the blocklist file path
-	m.BlocklistFile = d.Val()
-
-	// Ensure no extra arguments are provided
-	if d.NextArg() {
-		return d.ArgErr()
-	}
-
 	return nil
 }
 
