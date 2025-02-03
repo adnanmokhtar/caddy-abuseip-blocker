@@ -105,14 +105,19 @@ func (m *Middleware) ServeHTTP(w http.ResponseWriter, r *http.Request, next cadd
 
 // UnmarshalCaddyfile parses the Caddyfile directive.
 func (m *Middleware) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
-	if !d.Next() {
-		return d.ArgErr()
+	for d.Next() { // Advance to the next token
+		// Expect one argument (the blocklist file path)
+		if !d.NextArg() {
+			return d.ArgErr() // Missing argument
+		}
+		m.BlocklistFile = d.Val()
+		fmt.Printf("Blocklist file set to: %s\n", m.BlocklistFile)
+
+		// Ensure no extra arguments are provided
+		if d.NextArg() {
+			return d.ArgErr()
+		}
 	}
-	if !d.NextArg() { // Expect one argument (file path)
-		return d.ArgErr()
-	}
-	m.BlocklistFile = d.Val()
-	fmt.Printf("Blocklist file set to: %s\n", m.BlocklistFile)
 	return nil
 }
 
