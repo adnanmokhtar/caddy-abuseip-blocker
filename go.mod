@@ -2,7 +2,10 @@ module github.com/adnanmokhtar/caddy-abuseip-blocker
 
 go 1.21.1
 
-require github.com/caddyserver/caddy/v2 v2.7.6
+require (
+	github.com/caddyserver/caddy/v2 v2.7.6
+	github.com/fsnotify/fsnotify v1.8.0
+)
 
 require (
 	filippo.io/edwards25519 v1.0.0 // indirect
