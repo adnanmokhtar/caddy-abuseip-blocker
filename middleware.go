@@ -9,17 +9,17 @@ import (
 	"sync"
 
 	"github.com/caddyserver/caddy/v2"
-	"github.com/caddyserver/caddy/v2/caddyhttp"
+	"github.com/caddyserver/caddy/v2/modules/caddyhttp" // ✅ Correct import for Caddy v2.9+
 )
 
-// Middleware struct holds the blocklist path and data
+// Middleware struct
 type Middleware struct {
 	BlocklistFile string `json:"blocklist_file,omitempty"`
 	blockedIPs    map[string]bool
 	mu            sync.RWMutex
 }
 
-// LoadBlocklist reads IPs from the file into memory
+// LoadBlocklist reads IPs into memory
 func (m *Middleware) LoadBlocklist() error {
 	file, err := os.Open(m.BlocklistFile)
 	if err != nil {
@@ -41,11 +41,11 @@ func (m *Middleware) LoadBlocklist() error {
 	return scanner.Err()
 }
 
-// ServeHTTP intercepts requests and blocks abusive IPs
+// ServeHTTP intercepts and blocks requests from abusive IPs
 func (m *Middleware) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyhttp.Handler) error {
 	clientIP := r.Header.Get("CF-Connecting-IP")
 	if clientIP == "" {
-		clientIP = strings.Split(r.RemoteAddr, ":")[0] // Fallback to remote IP
+		clientIP = strings.Split(r.RemoteAddr, ":")[0] // Extract remote IP
 	}
 
 	m.mu.RLock()
@@ -63,7 +63,12 @@ func (m *Middleware) ServeHTTP(w http.ResponseWriter, r *http.Request, next cadd
 	return next.ServeHTTP(w, r)
 }
 
-// CaddyModule registers the middleware in Caddy
+// Register module
+func init() {
+	caddy.RegisterModule(Middleware{})
+}
+
+// CaddyModule definition
 func (Middleware) CaddyModule() caddy.ModuleInfo {
 	return caddy.ModuleInfo{
 		ID:  "http.handlers.abuseip_blocker",
@@ -71,7 +76,5 @@ func (Middleware) CaddyModule() caddy.ModuleInfo {
 	}
 }
 
-// Init registers the module with Caddy
-func init() {
-	caddy.RegisterModule(Middleware{})
-}
+// go mod tidy
+// go build
