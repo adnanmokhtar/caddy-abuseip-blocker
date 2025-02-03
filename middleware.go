@@ -10,91 +10,25 @@ import (
 
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
+	"github.com/caddyserver/caddy/v2/caddyconfig/httpcaddyfile"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
 )
 
-// Middleware struct
-type Middleware struct {
-	BlocklistFile string `json:"blocklist_file,omitempty"`
-	blockedIPs    map[string]bool
-	mu            sync.RWMutex
-}
-
-// Provision implements caddy.Provisioner.
-func (m *Middleware) Provision(ctx caddy.Context) error {
-    // Load the blocklist file during provisioning
-    if err := m.LoadBlocklist(); err != nil {
-        return fmt.Errorf("failed to load blocklist from %s: %w", m.BlocklistFile, err)
-    }
-
-    return nil
-}
-
-// LoadBlocklist reads IPs into memory
-func (m *Middleware) LoadBlocklist() error {
-	file, err := os.Open(m.BlocklistFile)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	m.blockedIPs = make(map[string]bool)
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		ip := strings.TrimSpace(scanner.Text())
-		if ip != "" {
-			m.blockedIPs[ip] = true
-		}
-	}
-	return scanner.Err()
-}
-
-// ServeHTTP intercepts and blocks requests from abusive IPs
-func (m *Middleware) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyhttp.Handler) error {
-	clientIP := r.Header.Get("CF-Connecting-IP")
-	if clientIP == "" {
-		clientIP = strings.Split(r.RemoteAddr, ":")[0] // Extract remote IP
-	}
-
-	m.mu.RLock()
-	isBlocked := m.blockedIPs[clientIP]
-	m.mu.RUnlock()
-
-	if isBlocked {
-		w.WriteHeader(http.StatusForbidden)
-		w.Write([]byte("403 Forbidden - Your IP is blocked"))
-		fmt.Println("Blocked IP:", clientIP)
-		return nil
-	}
-
-	// Continue processing the request
-	return next.ServeHTTP(w, r)
-}
-
-// UnmarshalCaddyfile implements caddyfile.Unmarshaler
-func (m *Middleware) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
-	for d.Next() {
-		if !d.NextArg() {
-			return d.ArgErr()
-		}
-		m.BlocklistFile = d.Val()
-
-		if d.NextArg() {
-			return d.ArgErr() // Only one argument is allowed
-		}
-	}
-	return nil
-}
-
-// Register module
 func init() {
+	// Register the module with Caddy
 	caddy.RegisterModule(Middleware{})
+	// Register the Caddyfile directive
+	httpcaddyfile.RegisterHandlerDirective("abuseip_blocker", parseCaddyfile)
 }
 
-// CaddyModule definition
+// Middleware implements an HTTP handler that blocks requests from abusive IPs.
+type Middleware struct {
+	BlocklistFile string `json:"blocklist_file,omitempty"` // Path to the blocklist file
+	blockedIPs    map[string]bool                         // In-memory map of blocked IPs
+	mu            sync.RWMutex                            // Mutex for thread-safe access to blockedIPs
+}
+
+// CaddyModule returns the Caddy module information.
 func (Middleware) CaddyModule() caddy.ModuleInfo {
 	return caddy.ModuleInfo{
 		ID:  "http.handlers.abuseip_blocker",
@@ -102,8 +36,104 @@ func (Middleware) CaddyModule() caddy.ModuleInfo {
 	}
 }
 
-// Ensure the interface is implemented
+// Provision loads the blocklist file into memory.
+func (m *Middleware) Provision(ctx caddy.Context) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Initialize the blocked IPs map
+	m.blockedIPs = make(map[string]bool)
+
+	// Open the blocklist file
+	file, err := os.Open(m.BlocklistFile)
+	if err != nil {
+		return fmt.Errorf("failed to open blocklist file: %v", err)
+	}
+	defer file.Close()
+
+	// Read the file line by line
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		ip := strings.TrimSpace(scanner.Text())
+		if ip != "" {
+			m.blockedIPs[ip] = true
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("failed to read blocklist file: %v", err)
+	}
+
+	fmt.Printf("Loaded %d IPs into the blocklist\n", len(m.blockedIPs))
+	return nil
+}
+
+// Validate ensures the blocklist file was loaded correctly.
+func (m *Middleware) Validate() error {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if len(m.blockedIPs) == 0 {
+		return fmt.Errorf("blocklist is empty")
+	}
+	return nil
+}
+
+// ServeHTTP blocks requests from abusive IPs.
+func (m *Middleware) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyhttp.Handler) error {
+	// Extract the client IP address
+	clientIP := r.Header.Get("CF-Connecting-IP") // Use Cloudflare's header if available
+	if clientIP == "" {
+		clientIP = strings.Split(r.RemoteAddr, ":")[0] // Fallback to the remote address
+	}
+
+	// Check if the IP is blocked
+	m.mu.RLock()
+	isBlocked := m.blockedIPs[clientIP]
+	m.mu.RUnlock()
+
+	if isBlocked {
+		w.WriteHeader(http.StatusForbidden)
+		w.Write([]byte("403 Forbidden - Your IP is blocked"))
+		fmt.Printf("Blocked IP: %s\n", clientIP)
+		return nil
+	}
+
+	// Continue to the next handler
+	return next.ServeHTTP(w, r)
+}
+
+// UnmarshalCaddyfile parses the Caddyfile directive.
+func (m *Middleware) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
+	d.Next() // Consume the directive name ("abuseip_blocker")
+
+	// Require an argument (the path to the blocklist file)
+	if !d.NextArg() {
+		return d.ArgErr()
+	}
+
+	// Store the blocklist file path
+	m.BlocklistFile = d.Val()
+
+	// Ensure no extra arguments are provided
+	if d.NextArg() {
+		return d.ArgErr()
+	}
+
+	return nil
+}
+
+// parseCaddyfile unmarshals the Caddyfile directive into a Middleware instance.
+func parseCaddyfile(h httpcaddyfile.Helper) (caddyhttp.MiddlewareHandler, error) {
+	var m Middleware
+	err := m.UnmarshalCaddyfile(h.Dispenser)
+	return &m, err
+}
+
+// Interface guards
 var (
+	_ caddy.Provisioner           = (*Middleware)(nil)
+	_ caddy.Validator             = (*Middleware)(nil)
 	_ caddyhttp.MiddlewareHandler = (*Middleware)(nil)
 	_ caddyfile.Unmarshaler       = (*Middleware)(nil)
 )
