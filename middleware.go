@@ -20,6 +20,16 @@ type Middleware struct {
 	mu            sync.RWMutex
 }
 
+// Provision implements caddy.Provisioner.
+func (m *Middleware) Provision(ctx caddy.Context) error {
+    // Load the blocklist file during provisioning
+    if err := m.LoadBlocklist(); err != nil {
+        return fmt.Errorf("failed to load blocklist from %s: %w", m.BlocklistFile, err)
+    }
+
+    return nil
+}
+
 // LoadBlocklist reads IPs into memory
 func (m *Middleware) LoadBlocklist() error {
 	file, err := os.Open(m.BlocklistFile)
