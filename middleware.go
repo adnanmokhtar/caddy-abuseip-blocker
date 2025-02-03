@@ -9,7 +9,8 @@ import (
 	"sync"
 
 	"github.com/caddyserver/caddy/v2"
-	"github.com/caddyserver/caddy/v2/modules/caddyhttp" // ✅ Correct import for Caddy v2.9+
+	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
+	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
 )
 
 // Middleware struct
@@ -63,6 +64,21 @@ func (m *Middleware) ServeHTTP(w http.ResponseWriter, r *http.Request, next cadd
 	return next.ServeHTTP(w, r)
 }
 
+// UnmarshalCaddyfile implements caddyfile.Unmarshaler
+func (m *Middleware) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
+	for d.Next() {
+		if !d.NextArg() {
+			return d.ArgErr()
+		}
+		m.BlocklistFile = d.Val()
+
+		if d.NextArg() {
+			return d.ArgErr() // Only one argument is allowed
+		}
+	}
+	return nil
+}
+
 // Register module
 func init() {
 	caddy.RegisterModule(Middleware{})
@@ -75,6 +91,12 @@ func (Middleware) CaddyModule() caddy.ModuleInfo {
 		New: func() caddy.Module { return new(Middleware) },
 	}
 }
+
+// Ensure the interface is implemented
+var (
+	_ caddyhttp.MiddlewareHandler = (*Middleware)(nil)
+	_ caddyfile.Unmarshaler       = (*Middleware)(nil)
+)
 
 // go mod tidy
 // go build
