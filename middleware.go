@@ -105,16 +105,25 @@ func (m *Middleware) ServeHTTP(w http.ResponseWriter, r *http.Request, next cadd
 
 // UnmarshalCaddyfile parses the Caddyfile directive.
 func (m *Middleware) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
-	if !d.Next() {
-		return d.ArgErr()
-	}
-	if d.NextArg() {
-		m.BlocklistFile = d.Val()
-		fmt.Printf("Loaded blocklist from: %s\n", m.BlocklistFile)
-	} else {
-		return d.ArgErr()
-	}
-	return nil
+    for d.Next() { // Advance to next token
+        if d.NextArg() {
+            m.BlocklistFile = d.Val() // Single argument case
+        } else {
+            for d.NextBlock(0) { // Block syntax case
+                switch d.Val() {
+                case "blocklist_file":
+                    if !d.NextArg() {
+                        return d.ArgErr()
+                    }
+                    m.BlocklistFile = d.Val()
+                default:
+                    return d.ArgErr() // Unknown directive
+                }
+            }
+        }
+    }
+    fmt.Println("Blocklist file set to:", m.BlocklistFile)
+    return nil
 }
 
 // parseCaddyfile unmarshals the Caddyfile directive into a Middleware instance.
