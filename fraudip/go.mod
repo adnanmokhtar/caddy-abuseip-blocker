@@ -1,4 +1,4 @@
-module github.com/adnanmokhtar/caddy-abuseip-blocker
+module github.com/adnanmokhtar/caddy-abuseip-blocker/fraudip
 
 go 1.21.1
 
